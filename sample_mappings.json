@@ -1,0 +1,43 @@
+{
+  "mappings": [
+    {
+      "requirement_id": "R1",
+      "target_field": "monthly_gross_income_gbp",
+      "source_fields": ["annual_gross_income_gbp"],
+      "transformation_id": "annual_to_monthly",
+      "evidence_quote": "Decisioning requires monthly gross income in GBP.",
+      "reasoning": "Both values represent gross income in GBP. The source is annual and the target is monthly, so the approved annual_to_monthly transformation divides the annual amount by 12.",
+      "assumptions": [
+        "annual_gross_income_gbp covers a full 12-month period, so dividing by 12 gives a representative monthly figure.",
+        "No rounding is applied; the decisioning workflow's expected precision has not been stated."
+      ],
+      "status": "Review required"
+    },
+    {
+      "requirement_id": "R2",
+      "target_field": "applicant_age_years",
+      "source_fields": ["date_of_birth", "submitted_at"],
+      "transformation_id": "calculate_age_at_submission",
+      "evidence_quote": "Applicant age must be 18 or older on the application submission date.",
+      "reasoning": "The dictionary has no age field. Age in completed years can be derived from date_of_birth and the application submission date recorded in submitted_at.",
+      "assumptions": [
+        "The application submission date is the calendar date of submitted_at in UTC.",
+        "FieldBridge supplies age only; the 18-or-older eligibility rule is applied by the decisioning workflow."
+      ],
+      "status": "Review required"
+    },
+    {
+      "requirement_id": "R3",
+      "target_field": "consent_timestamp",
+      "source_fields": [],
+      "transformation_id": "none",
+      "evidence_quote": "Capture the date and time at which the applicant gave consent.",
+      "reasoning": "No field in the data dictionary records when consent was given. submitted_at records application submission and must not be treated as the time consent was given.",
+      "assumptions": [],
+      "status": "Missing"
+    }
+  ],
+  "open_questions": [
+    "Which source field records the exact consent time, and in which timezone?"
+  ]
+}

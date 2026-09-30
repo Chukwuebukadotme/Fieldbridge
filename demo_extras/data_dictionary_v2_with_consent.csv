@@ -1,0 +1,7 @@
+field_name,data_type,description,unit,sample_value
+annual_gross_income_gbp,number,Annual gross income before deductions,GBP/year,48000
+monthly_net_income_gbp,number,Monthly take-home pay after tax and deductions,GBP/month,3050
+annual_gross_income_eur,number,Annual gross income before deductions for applicants paid in euros,EUR/year,56000
+date_of_birth,date,Applicant date of birth,ISO date,1992-04-17
+submitted_at,datetime,Date and time the application was submitted,UTC,2026-09-01T10:30:00Z
+consent_given_at,datetime,Date and time the applicant ticked the data-sharing consent box,UTC,2026-09-01T10:27:12Z

@@ -1,0 +1,5 @@
+R1: Decisioning requires monthly gross income in GBP.
+
+R2: Applicant age must be 18 or older on the application submission date.
+
+R3: Capture the date and time at which the applicant gave consent.
