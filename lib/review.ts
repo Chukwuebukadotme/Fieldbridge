@@ -219,6 +219,18 @@ export function correct(ws: Workspace, target: string, sourceFields: string[], t
   return withMapping(ws, target, () => next, events);
 }
 
+export interface MappingChange {
+  target: string;
+  sourceFields: string[];
+  transformationId: string;
+  requirementId: string | null;
+}
+
+/** Save several edits from the field-mapping editor at once. Each changed attribute is audited. */
+export function applyCorrections(ws: Workspace, changes: MappingChange[]): Workspace {
+  return changes.reduce((acc, c) => correct(acc, c.target, c.sourceFields, c.transformationId, c.requirementId), ws);
+}
+
 export function setQuestionResolved(ws: Workspace, questionId: number, resolved: boolean): Workspace {
   const question = ws.openQuestions.find((q) => q.id === questionId);
   if (!question || question.resolved === resolved) return ws;

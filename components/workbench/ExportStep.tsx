@@ -16,7 +16,7 @@ import { useReview } from "./state";
 import { StepHeader } from "./Workbench";
 
 export function ExportStep() {
-  const { workspace, evaluations, approve, reject, select, goTo, setQuestionResolved, addQuestion, exportBrief } = useReview();
+  const { workspace, evaluations, approve, reject, editMapping, setQuestionResolved, addQuestion, exportBrief } = useReview();
   const { ready, headline } = readiness(workspace, evaluations);
   const brief = useMemo(() => buildBrief(workspace, evaluations), [workspace, evaluations]);
   const derived = ruleQuestions(workspace, evaluations);
@@ -73,12 +73,9 @@ export function ExportStep() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => {
-                          select(m.target_field);
-                          goTo(2);
-                        }}
+                        onClick={() => editMapping(m.target_field)}
                       >
-                        Correct
+                        Edit
                       </Button>
                     </div>
                   </li>

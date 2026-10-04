@@ -1,27 +1,29 @@
 "use client";
 
-import { ArrowRight, Check, CornerDownRight, Info, SkipForward, X } from "lucide-react";
+import { ArrowRight, Check, CornerDownRight, Info, ListChecks, PencilLine, SkipForward, Table2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { APPROVED, BLOCKED, MISSING, READY, REVIEW, type Mapping, type MappingEvaluation, type MappingStatus } from "@/lib/models";
 import { getMapping, nextIssue, riskSorted, ruleContext, unresolved } from "@/lib/review";
-import { canApprove, evaluateMapping } from "@/lib/rules";
-import { findSpec, REGISTRY } from "@/lib/transformations";
+import { canApprove } from "@/lib/rules";
+import { findSpec } from "@/lib/transformations";
 
-import { Button, Callout, Card, cx, FieldName, Kbd, SectionLabel, Select, StatusBadge, Tabs } from "../ui";
-import { useReview } from "./state";
+import { Button, Callout, Card, cx, FieldName, Kbd, SectionLabel, StatusBadge, Tabs } from "../ui";
+import { FieldMapping } from "./FieldMapping";
+import { useReview, type MapView } from "./state";
 import { StepHeader } from "./Workbench";
 
 const STATUS_ORDER: MappingStatus[] = [BLOCKED, MISSING, REVIEW, READY, APPROVED];
 
 export function MapStep() {
-  const { workspace, evaluations, selected, select, approve, goTo, notice, dismissNotice } = useReview();
+  const { workspace, evaluations, selected, select, approve, goTo, notice, dismissNotice, mapView, setMapView, drafts } = useReview();
   const ordered = riskSorted(workspace, evaluations);
   const current = selected && evaluations[selected] ? selected : ordered[0].target_field;
   const remaining = unresolved(workspace, evaluations).length;
 
   // Keyboard: ↑/↓ or j/k move between rows, n jumps to the next issue, a approves.
   useEffect(() => {
+    if (mapView !== "review") return;
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const el = e.target as HTMLElement;
@@ -43,16 +45,23 @@ export function MapStep() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [ordered, current, workspace, evaluations, select, approve]);
+  }, [mapView, ordered, current, workspace, evaluations, select, approve]);
 
+  const unmapped = workspace.mappings.filter((m) => !m.source_fields.length).length;
+  const unsaved = Object.keys(drafts).length;
   const counts = STATUS_ORDER.map((s) => [s, Object.values(evaluations).filter((e) => e.status === s).length] as const).filter(([, n]) => n);
 
   return (
     <div>
       <StepHeader
         title="Map and review"
-        description="One proposal per required target field, riskiest first. Select a row to inspect its evidence, then approve, reject or correct it."
+        description={
+          mapView === "review"
+            ? "One proposal per required target field, riskiest first. Select a row to inspect its evidence, then approve or reject it."
+            : "Edit which source fields and transformation feed each target. Every change is checked before you save it."
+        }
         actions={
+          mapView === "review" && (
           <>
             <Button variant="secondary" icon={<SkipForward className="size-4" aria-hidden />} disabled={!remaining} onClick={() => {
               const next = nextIssue(workspace, evaluations, current);
@@ -64,7 +73,23 @@ export function MapStep() {
               Validate
             </Button>
           </>
+          )
         }
+      />
+
+      <ViewSwitch
+        value={mapView}
+        onChange={setMapView}
+        options={[
+          { id: "review", icon: <ListChecks className="size-4" aria-hidden />, label: "Review queue", meta: remaining ? `${remaining} open` : "All approved" },
+          {
+            id: "mapping",
+            icon: <Table2 className="size-4" aria-hidden />,
+            label: "Field mapping",
+            meta: unsaved ? `${unsaved} unsaved` : unmapped ? `${unmapped} unmapped` : "All mapped",
+            alert: unsaved > 0,
+          },
+        ]}
       />
 
       {notice && (
@@ -80,7 +105,12 @@ export function MapStep() {
         </div>
       )}
 
-      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+      {mapView === "mapping" ? (
+        <div className="animate-fade-in">
+          <FieldMapping />
+        </div>
+      ) : (
+      <div className="grid animate-fade-in items-start gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
         <div className="min-w-0">
           <Card>
             <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
@@ -110,6 +140,49 @@ export function MapStep() {
         </div>
         <EvidencePanel key={current} target={current} />
       </div>
+      )}
+    </div>
+  );
+}
+
+function ViewSwitch({
+  value,
+  onChange,
+  options,
+}: {
+  value: MapView;
+  onChange: (v: MapView) => void;
+  options: { id: MapView; icon: React.ReactNode; label: string; meta: string; alert?: boolean }[];
+}) {
+  return (
+    <div role="tablist" aria-label="Map and review views" className="mb-4 inline-flex gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      {options.map((o) => {
+        const active = o.id === value;
+        return (
+          <button
+            key={o.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(o.id)}
+            className={cx(
+              "inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors",
+              active ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+            )}
+          >
+            {o.icon}
+            {o.label}
+            <span
+              className={cx(
+                "rounded-full px-1.5 text-[11px]",
+                active ? "bg-white/15 text-white" : o.alert ? "bg-blue-100 text-blue-800" : "bg-slate-100 text-slate-500",
+              )}
+            >
+              {o.meta}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -187,13 +260,13 @@ export function Decision({ decision }: { decision: Mapping["decision"] }) {
   return <span className="whitespace-nowrap text-slate-500">Pending</span>;
 }
 
-type PanelTab = "evidence" | "checks" | "correct";
+type PanelTab = "evidence" | "checks";
 
 function EvidencePanel({ target }: { target: string }) {
-  const { workspace, evaluations, approve, reject } = useReview();
+  const { workspace, evaluations, approve, reject, editMapping } = useReview();
   const mapping = getMapping(workspace, target);
   const ev = evaluations[target];
-  const [tab, setTab] = useState<PanelTab>(mapping.decision === "Rejected" ? "correct" : "evidence");
+  const [tab, setTab] = useState<PanelTab>("evidence");
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const openChecks = ev.checks.filter((c) => c.status !== READY).length;
@@ -236,7 +309,6 @@ function EvidencePanel({ target }: { target: string }) {
                     </>
                   ),
                 },
-                { id: "correct", label: "Correct mapping" },
               ]}
             />
           </div>
@@ -245,7 +317,6 @@ function EvidencePanel({ target }: { target: string }) {
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4" role="tabpanel">
           {tab === "evidence" && <EvidenceDetails mapping={mapping} ev={ev} />}
           {tab === "checks" && <ChecksList ev={ev} />}
-          {tab === "correct" && <CorrectionForm mapping={mapping} onApplied={() => setTab("evidence")} />}
         </div>
 
         <div className="border-t border-slate-100 bg-slate-50/70 px-5 py-3.5">
@@ -271,7 +342,6 @@ function EvidencePanel({ target }: { target: string }) {
                     reject(target, reason);
                     setRejecting(false);
                     setReason("");
-                    setTab("correct");
                   }}
                 >
                   Confirm rejection
@@ -287,7 +357,10 @@ function EvidencePanel({ target }: { target: string }) {
                 <Button variant="primary" className="flex-1" icon={<Check className="size-4" aria-hidden />} disabled={!approvable} onClick={() => approve(target)}>
                   Approve mapping
                 </Button>
-                <Button variant="secondary" icon={<X className="size-4" aria-hidden />} disabled={mapping.decision === "Rejected"} onClick={() => setRejecting(true)}>
+                <Button variant="secondary" icon={<PencilLine className="size-4" aria-hidden />} onClick={() => editMapping(target)}>
+                  Edit mapping
+                </Button>
+                <Button variant="secondary" icon={<X className="size-4" aria-hidden />} disabled={mapping.decision === "Rejected"} onClick={() => setRejecting(true)} aria-label="Reject mapping">
                   Reject
                 </Button>
               </div>
@@ -295,7 +368,7 @@ function EvidencePanel({ target }: { target: string }) {
                 {mapping.decision === "Approved"
                   ? "Approved. Editing the mapping resets the decision to Pending."
                   : mapping.decision === "Rejected"
-                    ? "Rejected. It stays Blocked until it is corrected."
+                    ? "Rejected. It stays Blocked until you edit the mapping."
                     : approvable
                       ? "Approving confirms the assumptions above and records it in the audit history."
                       : "Approval is disabled until the Missing or Blocked findings are resolved."}
@@ -452,108 +525,5 @@ function ChecksList({ ev }: { ev: MappingEvaluation }) {
         </li>
       ))}
     </ol>
-  );
-}
-
-function CorrectionForm({ mapping, onApplied }: { mapping: Mapping; onApplied: () => void }) {
-  const { workspace, correct } = useReview();
-  const ctx = ruleContext(workspace);
-  const ids = Object.keys(REGISTRY);
-  const [transformation, setTransformation] = useState(ids.includes(mapping.transformation_id) ? mapping.transformation_id : "none");
-  const [sources, setSources] = useState<string[]>(mapping.source_fields);
-  const [requirement, setRequirement] = useState(mapping.requirement_id);
-  const spec = REGISTRY[transformation];
-  const names = workspace.dictionary.map((f) => f.field_name);
-  const chosen = spec.inputRoles.map((_, i) => (sources[i] && names.includes(sources[i]) ? sources[i] : ""));
-  const complete = chosen.every(Boolean);
-  const unchanged =
-    transformation === mapping.transformation_id && chosen.join("|") === mapping.source_fields.join("|") && requirement === mapping.requirement_id;
-
-  const draftEval =
-    complete && !unchanged
-      ? evaluateMapping(
-          {
-            ...mapping,
-            source_fields: chosen,
-            transformation_id: transformation,
-            requirement_id: requirement,
-            evidence_quote: requirement !== mapping.requirement_id ? (ctx.requirements[requirement]?.text ?? "") : mapping.evidence_quote,
-            decision: "Pending",
-            proposed_status: null,
-          },
-          ctx,
-        )
-      : null;
-
-  return (
-    <div className="space-y-4">
-      <p className="text-[13px] text-slate-500">
-        Choose only from the approved transformation registry and the uploaded dictionary. The outcome updates as you edit, before anything is saved.
-      </p>
-      <Select label="Transformation (approved registry only)" value={transformation} onChange={setTransformation}>
-        {ids.map((id) => (
-          <option key={id} value={id}>
-            {id} · {REGISTRY[id].label}
-          </option>
-        ))}
-      </Select>
-      {spec.inputRoles.map((role, i) => (
-        <Select
-          key={`${transformation}-${i}`}
-          label={`${role} (source field)`}
-          value={chosen[i]}
-          onChange={(value) => setSources(chosen.map((current, j) => (j === i ? value : current)))}
-        >
-          <option value="" disabled>
-            Select a source field
-          </option>
-          {workspace.dictionary.map((f) => (
-            <option key={f.field_name} value={f.field_name}>
-              {f.field_name} · {f.data_type} · {f.unit || "no unit"}
-            </option>
-          ))}
-        </Select>
-      ))}
-      <Select label="Requirement evidence (quoted exactly from the document)" value={requirement} onChange={setRequirement}>
-        {!ctx.requirements[requirement] && <option value={requirement}>{requirement || "(none cited)"}</option>}
-        {workspace.requirements.map((r) => (
-          <option key={r.id} value={r.id}>
-            {r.id}: {r.text}
-          </option>
-        ))}
-      </Select>
-
-      <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50/60 px-3.5 py-3 text-[13px]">
-        {unchanged ? (
-          <span className="text-slate-500">These are the current settings. Change a field to preview the outcome.</span>
-        ) : !complete ? (
-          <span className="text-slate-500">Select every source field to preview the outcome.</span>
-        ) : (
-          draftEval && (
-            <div className="animate-fade-in">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium text-slate-700">If applied:</span>
-                <StatusBadge status={draftEval.status} />
-                <span className="font-mono text-xs text-slate-600">→ {draftEval.preview.output ?? draftEval.preview.error}</span>
-              </div>
-              {(draftEval.status === BLOCKED || draftEval.status === MISSING) && draftEval.reasons[0] && (
-                <p className="mt-1.5 text-xs text-red-800">{draftEval.reasons[0]}</p>
-              )}
-            </div>
-          )
-        )}
-      </div>
-
-      <Button
-        variant="secondary"
-        disabled={!complete || unchanged}
-        onClick={() => {
-          correct(mapping.target_field, chosen, transformation, requirement);
-          onApplied();
-        }}
-      >
-        Apply correction
-      </Button>
-    </div>
   );
 }

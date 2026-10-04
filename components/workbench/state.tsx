@@ -5,7 +5,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { modelLabel, PROVIDERS, type EngineMode, type ProviderId } from "@/lib/ai/providers";
 import { generateMappings } from "@/lib/engine";
 import { briefFileName, buildBrief } from "@/lib/exporter";
-import { parseDictionary, parseRequirements, type LoadedFile } from "@/lib/inputs";
+import { parseDictionary, parseRequirements, rejectedFile, type LoadedFile } from "@/lib/inputs";
 import { TARGET_FIELDS } from "@/lib/models";
 import * as review from "@/lib/review";
 
@@ -13,6 +13,14 @@ import { useToast } from "./Toasts";
 
 export type Step = 1 | 2 | 3 | 4;
 export type FileKind = "req" | "dict";
+export type MapView = "review" | "mapping";
+
+/** An unsaved edit in the field-mapping editor. */
+export interface MappingDraft {
+  sourceFields: string[];
+  transformationId: string;
+  requirementId: string;
+}
 type VerifyState = { state: "idle" | "checking" | "ok" | "error"; message: string | null };
 
 export interface AiSettings {
@@ -41,6 +49,8 @@ function useWorkbenchState() {
   const [dictFile, setDictFile] = useState<LoadedFile | null>(null);
   const [workspace, setWorkspace] = useState<review.Workspace | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [mapView, setMapView] = useState<MapView>("review");
+  const [drafts, setDrafts] = useState<Record<string, MappingDraft>>({});
   const [generating, setGenerating] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -70,6 +80,7 @@ function useWorkbenchState() {
     setDictFile(s.dictFile);
     setWorkspace(s.workspace);
     setSelected(s.selected);
+    setDrafts({});
   };
 
   /** Changing inputs invalidates proposals; keep an undo so review work is never lost by accident. */
@@ -77,6 +88,7 @@ function useWorkbenchState() {
     if (!before.workspace) return;
     setWorkspace(null);
     setSelected(null);
+    setDrafts({});
     setNotice(null);
     toast({ tone: "info", title: "Inputs changed", description: "Generate proposals again to review the new files.", action: { label: "Undo", onClick: () => restore(before) } });
   };
@@ -105,17 +117,18 @@ function useWorkbenchState() {
     const before = snapshot();
     const extension = kind === "req" ? ".txt" : ".csv";
     const parser = kind === "req" ? parseRequirements : parseDictionary;
+    const fileKind = kind === "req" ? "requirements" : "dictionary";
     const set = kind === "req" ? setReqFile : setDictFile;
     let loaded: LoadedFile;
     if (!file.name.toLowerCase().endsWith(extension)) {
-      loaded = { ...parser(file.name, ""), error: `Only ${extension} files are supported here.` };
+      loaded = rejectedFile(file.name, fileKind, file.size, "Supported file type", `Only ${extension} files are supported here.`);
     } else if (file.size > MAX_UPLOAD_BYTES) {
-      loaded = { ...parser(file.name, ""), error: "The file is larger than 1 MB." };
+      loaded = rejectedFile(file.name, fileKind, file.size, "Within size limit", "The file is larger than 1 MB.");
     } else {
       try {
         loaded = parser(file.name, await file.arrayBuffer(), "upload");
       } catch (error) {
-        loaded = { ...parser(file.name, ""), error: `The file could not be read: ${(error as Error).message}` };
+        loaded = rejectedFile(file.name, fileKind, file.size, "File can be read", `The file could not be read: ${(error as Error).message}`);
       }
     }
     set(loaded);
@@ -175,6 +188,8 @@ function useWorkbenchState() {
     const ws = review.buildWorkspace(reqFile, dictFile, TARGET_FIELDS, result);
     const evals = review.evaluateAll(ws);
     setWorkspace(ws);
+    setDrafts({});
+    setMapView("review");
     setSelected(review.riskSorted(ws, evals)[0]?.target_field ?? null);
     setGenerating(false);
     setStep(2);
@@ -208,6 +223,19 @@ function useWorkbenchState() {
     reject: (target: string, reason: string) => mutate((ws) => review.reject(ws, target, reason)),
     correct: (target: string, sources: string[], transformation: string, requirement: string | null) =>
       mutate((ws) => review.correct(ws, target, sources, transformation, requirement)),
+    saveDrafts: () => {
+      const changes = Object.entries(drafts).map(([target, d]) => ({
+        target,
+        sourceFields: d.sourceFields,
+        transformationId: d.transformationId,
+        requirementId: d.requirementId,
+      }));
+      if (!changes.length) return;
+      if (mutate((ws) => review.applyCorrections(ws, changes))) {
+        toast({ tone: "success", title: "Mapping saved", description: `${changes.length} target field${changes.length === 1 ? "" : "s"} updated. Checks re-ran and the changes are in the audit history.` });
+      }
+      setDrafts({});
+    },
     setQuestionResolved: (id: number, resolved: boolean) => mutate((ws) => review.setQuestionResolved(ws, id, resolved)),
     addQuestion: (text: string) => mutate((ws) => review.addQuestion(ws, text)),
   };
@@ -240,6 +268,7 @@ function useWorkbenchState() {
     setDictFile(null);
     setWorkspace(null);
     setSelected(null);
+    setDrafts({});
     setNotice(null);
     toast({ tone: "info", title: "Workspace cleared", description: "API keys and settings were kept.", action: { label: "Undo", onClick: () => restore(before) } });
   };
@@ -249,6 +278,21 @@ function useWorkbenchState() {
     setStep(target);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  /** Jump to the field-mapping editor with one target highlighted. */
+  const editMapping = (target: string) => {
+    setSelected(target);
+    setMapView("mapping");
+    goTo(2);
+  };
+
+  const setDraft = (target: string, draft: MappingDraft | null) =>
+    setDrafts((all) => {
+      const next = { ...all };
+      if (draft) next[target] = draft;
+      else delete next[target];
+      return next;
+    });
 
   const engineLabel =
     ai.mode === "demo" ? "Demo mode" : `${PROVIDERS[ai.mode].label} · ${modelLabel(ai.mode, ai.models[ai.mode])}`;
@@ -265,6 +309,12 @@ function useWorkbenchState() {
     evaluations,
     selected,
     select: setSelected,
+    mapView,
+    setMapView,
+    editMapping,
+    drafts,
+    setDraft,
+    discardDrafts: () => setDrafts({}),
     generating,
     generate,
     notice,

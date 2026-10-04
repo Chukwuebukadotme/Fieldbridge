@@ -157,7 +157,7 @@ export const REGISTRY: Record<string, TransformationSpec> = {
   },
   calculate_age_at_submission: {
     id: "calculate_age_at_submission",
-    label: "Age at submission (completed years)",
+    label: "Age at submission",
     formula: "target = completed years from date_of_birth to UTC date of submitted_at",
     inputRoles: ["Date of birth", "Submission timestamp"],
     inputTypes: [new Set(["date"]), new Set(["datetime"])],

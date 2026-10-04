@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { APPROVED, BLOCKED, MISSING, REVIEW, type MappingEvaluation } from "@/lib/models";
-import { approve, correct, evaluateAll, getMapping, reject, riskSorted, ruleContext, type Workspace } from "@/lib/review";
+import { applyCorrections, approve, correct, evaluateAll, getMapping, reject, riskSorted, ruleContext, type Workspace } from "@/lib/review";
 import { evaluateMapping } from "@/lib/rules";
 
 import { demoWorkspace } from "./helpers";
@@ -98,4 +98,17 @@ it("audits approvals, edits and rejections, and re-runs checks after an edit", (
     "Rejected mapping",
   ]);
   expect(ws.audit[2]).toMatchObject({ previous_value: "annual_to_monthly", new_value: "identity", actor: "Demo reviewer" });
+});
+
+it("saves several mapping edits at once and audits each one", async () => {
+  ws = applyCorrections(ws, [
+    { target: "consent_timestamp", sourceFields: ["submitted_at"], transformationId: "identity", requirementId: "R3" },
+    { target: "applicant_age_years", sourceFields: ["date_of_birth", "submitted_at"], transformationId: "calculate_age_at_submission", requirementId: "R2" },
+  ]);
+  // The unchanged row produces no events; the changed row produces two.
+  expect(ws.audit.slice(1).map((e) => [e.action, e.target_field])).toEqual([
+    ["Changed source fields", "consent_timestamp"],
+    ["Changed transformation", "consent_timestamp"],
+  ]);
+  expect(evaluateAll(ws).consent_timestamp.status).toBe(BLOCKED);
 });

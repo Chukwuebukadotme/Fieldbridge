@@ -1,10 +1,10 @@
 "use client";
 
-import { ArrowRight, Download, FileSpreadsheet, FileText, KeyRound, Replace, Sparkles, Upload, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Download, FileSpreadsheet, FileText, KeyRound, Replace, Sparkles, Upload, X, XCircle } from "lucide-react";
 import { useRef, useState, type DragEvent } from "react";
 
 import { modelLabel, PROVIDERS, type EngineMode, type ProviderId } from "@/lib/ai/providers";
-import type { LoadedFile } from "@/lib/inputs";
+import { DICTIONARY_COLUMNS, type LoadedFile } from "@/lib/inputs";
 import { TARGET_FIELDS } from "@/lib/models";
 
 import { Button, Card, CardHeader, cx, FieldName, Pill } from "../ui";
@@ -15,6 +15,7 @@ export function UploadStep() {
   const { reqFile, dictFile, loadDemo, workspace, generating, generate, goTo, ai } = useWorkbench();
   const bothOk = Boolean(reqFile?.ok && dictFile?.ok);
   const nothingLoaded = !reqFile && !dictFile;
+  const uploadWarnings = [reqFile, dictFile].reduce((n, f) => n + (f?.checks.filter((c) => c.status === "warn").length ?? 0), 0);
 
   return (
     <div>
@@ -24,7 +25,7 @@ export function UploadStep() {
         actions={
           !nothingLoaded && (
             <Button variant="ghost" size="sm" icon={<Sparkles className="size-3.5" aria-hidden />} onClick={() => loadDemo()}>
-              Reload demo data
+              {reqFile?.origin === "demo" ? "Reload demo data" : "Use demo data"}
             </Button>
           )
         }
@@ -61,22 +62,46 @@ export function UploadStep() {
         </Card>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2 [&>*]:min-w-0">
         <FileCard
           kind="req"
           file={reqFile}
           title="Requirements document"
-          hint="Plain text, one requirement per line, e.g. “R1: …”."
           extension="txt"
           icon={<FileText className="size-5" aria-hidden />}
+          template="/templates/requirements_template.txt"
+          guidance={
+            <>
+              One requirement per line, starting with an ID like <code className="rounded bg-slate-100 px-1 font-mono text-xs text-slate-700">R1:</code>.
+              Evidence is matched against this text exactly.
+            </>
+          }
         />
         <FileCard
           kind="dict"
           file={dictFile}
           title="Data dictionary"
-          hint="CSV with field_name, data_type, description, unit, sample_value."
           extension="csv"
           icon={<FileSpreadsheet className="size-5" aria-hidden />}
+          template="/templates/data_dictionary_template.csv"
+          guidance={
+            <span className="flex flex-wrap items-center gap-1">
+              Columns:
+              {DICTIONARY_COLUMNS.required.map((c) => (
+                <code key={c} className="rounded bg-slate-100 px-1 font-mono text-xs text-slate-800">
+                  {c}
+                  <span className="text-red-600" aria-label="required">
+                    *
+                  </span>
+                </code>
+              ))}
+              {DICTIONARY_COLUMNS.optional.map((c) => (
+                <code key={c} className="rounded border border-dashed border-slate-300 px-1 font-mono text-xs text-slate-500">
+                  {c}
+                </code>
+              ))}
+            </span>
+          }
           footer={
             reqFile?.origin === "demo" && (
               <button
@@ -91,7 +116,7 @@ export function UploadStep() {
         />
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] [&>*]:min-w-0">
         <TargetsCard />
         <EngineCard />
       </div>
@@ -101,7 +126,8 @@ export function UploadStep() {
           {bothOk ? (
             <>
               <span className="font-medium text-slate-900">{reqFile!.count} requirements</span> and{" "}
-              <span className="font-medium text-slate-900">{dictFile!.count} fields</span> ready.{" "}
+              <span className="font-medium text-slate-900">{dictFile!.count} fields</span> ready
+              {uploadWarnings > 0 && <span className="text-amber-800"> ({uploadWarnings} upload warning{uploadWarnings === 1 ? "" : "s"})</span>}.{" "}
               {ai.mode === "demo" ? "Proposals come from Demo mode." : `Proposals come from ${PROVIDERS[ai.mode].label} ${modelLabel(ai.mode, ai.models[ai.mode])}.`}
               {workspace && <span className="text-amber-700"> Generating again replaces the current decisions and audit history.</span>}
             </>
@@ -156,21 +182,35 @@ function GeneratingCard({ provider }: { provider: ProviderId }) {
   );
 }
 
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const CHECK_ICON = {
+  pass: <CheckCircle2 className="size-4 text-emerald-600" aria-label="Passed" />,
+  warn: <AlertTriangle className="size-4 text-amber-600" aria-label="Warning" />,
+  fail: <XCircle className="size-4 text-red-600" aria-label="Failed" />,
+};
+
 function FileCard({
   kind,
   file,
   title,
-  hint,
   extension,
   icon,
+  template,
+  guidance,
   footer,
 }: {
   kind: FileKind;
   file: LoadedFile | null;
   title: string;
-  hint: string;
   extension: "txt" | "csv";
   icon: React.ReactNode;
+  template: string;
+  guidance: React.ReactNode;
   footer?: React.ReactNode;
 }) {
   const { uploadFile, clearFile } = useWorkbench();
@@ -185,26 +225,12 @@ function FileCard({
     if (dropped) uploadFile(kind, dropped);
   };
 
-  const picker = (
-    <input
-      ref={input}
-      type="file"
-      accept={`.${extension}`}
-      className="sr-only"
-      tabIndex={-1}
-      aria-hidden
-      onChange={(e) => {
-        const chosen = e.target.files?.[0];
-        if (chosen) uploadFile(kind, chosen);
-        e.target.value = "";
-      }}
-    />
-  );
+  const warnings = file?.checks.filter((c) => c.status === "warn").length ?? 0;
+  const failed = file?.checks.some((c) => c.status === "fail") ?? false;
+  const checksSummary = failed ? "Failed" : warnings ? `${warnings} warning${warnings === 1 ? "" : "s"}` : `All ${file?.checks.length ?? 0} passed`;
 
   return (
-    <Card
-      className={cx("flex flex-col transition-colors", dragging && "border-blue-400 bg-blue-50/40")}
-    >
+    <Card className={cx("flex min-w-0 flex-col transition-colors", dragging && "border-blue-400 bg-blue-50/40")}>
       <div
         className="flex flex-1 flex-col p-5"
         onDragOver={(e) => {
@@ -214,11 +240,32 @@ function FileCard({
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
       >
-        <div className="mb-3">
-          <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
-          <p className="text-[13px] text-slate-500">{hint}</p>
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+            <div className="mt-1 text-[13px] text-slate-500">{guidance}</div>
+          </div>
+          <a
+            href={template}
+            download
+            className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50"
+          >
+            <Download className="size-3.5" aria-hidden /> Template
+          </a>
         </div>
-        {picker}
+        <input
+          ref={input}
+          type="file"
+          accept={`.${extension}`}
+          className="sr-only"
+          tabIndex={-1}
+          aria-hidden
+          onChange={(e) => {
+            const chosen = e.target.files?.[0];
+            if (chosen) uploadFile(kind, chosen);
+            e.target.value = "";
+          }}
+        />
         {!file ? (
           <button
             type="button"
@@ -229,55 +276,60 @@ function FileCard({
               <Upload className="size-4" aria-hidden />
             </span>
             <span className="text-sm font-medium text-slate-700">
-              Drop a .{extension} file or <span className="text-blue-700">browse</span>
+              Drag and drop or <span className="text-blue-700">browse</span>
             </span>
-            <span className="text-xs text-slate-500">Up to 1 MB</span>
+            <span className="text-xs text-slate-500">Accepts .{extension} · UTF-8 · up to 1 MB</span>
           </button>
         ) : (
           <div className="animate-fade-in">
-            <div className="flex items-start gap-3 rounded-lg border border-slate-200 p-3">
-              <div className={cx("grid size-10 shrink-0 place-items-center rounded-lg", file.ok ? "bg-blue-50 text-blue-700" : "bg-red-50 text-red-700")}>{icon}</div>
+            <div className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2.5">
+              <div className={cx("grid size-9 shrink-0 place-items-center rounded-lg", file.ok ? "bg-blue-50 text-blue-700" : "bg-red-50 text-red-700")}>{icon}</div>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-slate-900">{file.name}</div>
-                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
-                  <span>{file.fileType}</span>
-                  <span aria-hidden>·</span>
-                  <span>{file.origin === "demo" ? "Demo data" : "Uploaded"}</span>
-                  <span aria-hidden>·</span>
-                  <span>{file.ok ? `${file.count} ${kind === "req" ? "requirements" : "fields"} detected` : "Nothing detected"}</span>
-                </div>
-                <div className="mt-2">
-                  {file.ok ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-600/20 ring-inset">
-                      ✓ Parsed
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 ring-1 ring-red-600/20 ring-inset">
-                      ✕ Failed
-                    </span>
-                  )}
+                <div className="text-xs text-slate-500">
+                  {formatSize(file.size)} · {file.origin === "demo" ? "Demo data" : "Uploaded"}
+                  {file.ok && ` · ${file.count} ${kind === "req" ? "requirements" : "fields"} detected`}
                 </div>
               </div>
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="sm" icon={<Replace className="size-3.5" aria-hidden />} onClick={() => input.current?.click()}>
-                  Replace
-                </Button>
-                <button
-                  type="button"
-                  onClick={() => clearFile(kind)}
-                  className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                  aria-label={`Remove ${file.name}`}
-                >
-                  <X className="size-4" aria-hidden />
-                </button>
-              </div>
+              <Button variant="ghost" size="sm" icon={<Replace className="size-3.5" aria-hidden />} onClick={() => input.current?.click()} aria-label={`Replace ${file.name}`}>
+                <span className="hidden sm:inline">Replace</span>
+              </Button>
+              <button
+                type="button"
+                onClick={() => clearFile(kind)}
+                className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                aria-label={`Remove ${file.name}`}
+              >
+                <X className="size-4" aria-hidden />
+              </button>
             </div>
-            {file.error && <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-[13px] text-red-800">{file.error}</p>}
-            {file.warnings.map((w) => (
-              <p key={w} className="mt-1.5 text-xs text-amber-800">
-                ⚠ {w}
-              </p>
-            ))}
+
+            <div className={cx("mt-3 rounded-lg border", failed ? "border-red-200" : warnings ? "border-amber-200" : "border-slate-200")}>
+              <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+                <span className="text-xs font-semibold tracking-wider text-slate-500 uppercase">Upload checks</span>
+                <span className={cx("text-xs font-medium", failed ? "text-red-700" : warnings ? "text-amber-800" : "text-emerald-700")}>{checksSummary}</span>
+              </div>
+              <ul className="divide-y divide-slate-100">
+                {file.checks.map((check) => (
+                  <li key={check.label} className="flex items-start gap-2.5 px-3 py-2">
+                    <span className="mt-px shrink-0">{CHECK_ICON[check.status]}</span>
+                    <span className="min-w-0 text-[13px]">
+                      <span className="font-medium text-slate-800">{check.label}</span>
+                      <span className="block text-xs break-words text-slate-500">{check.detail}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {failed && (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-red-100 bg-red-50/60 px-3 py-2 text-xs text-red-800">
+                  Fix the file and upload it again, or start from the template.
+                  <Button size="sm" variant="secondary" icon={<Replace className="size-3.5" aria-hidden />} onClick={() => input.current?.click()}>
+                    Upload again
+                  </Button>
+                </div>
+              )}
+            </div>
+
             {file.ok && (
               <div className="mt-3">
                 <button

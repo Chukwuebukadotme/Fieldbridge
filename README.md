@@ -78,8 +78,8 @@ Anything malformed, a rejected key, or any other failure shows a one-line notice
 
 | Step | What happens |
 |---|---|
-| **1. Upload** | Drop or browse for a `.txt` requirements document and a `.csv` data dictionary, or click **Use demo data**. Each file card shows its name, type, origin, what was detected, the parse status, a preview, and Replace and Remove actions. Malformed files show a clear error instead of crashing the app. Choose the mapping engine here: Demo mode, OpenAI or Anthropic. |
-| **2. Map and review** | One proposal per required target field, riskiest first. Selecting a row opens the **evidence panel**, with three tabs. **Evidence:** the exact requirement passage (verified verbatim), source and target definitions, the transformation, a before-and-after sample preview, the reasoning and the assumptions. **Rule checks:** all ten results. **Correct mapping:** change the transformation, sources or requirement, and see the resulting status before you save. Approve and Reject sit at the bottom of the panel. **Review next issue** cycles through unresolved mappings. Keyboard: `↑` `↓` to move, `N` for the next issue, `A` to approve. |
+| **1. Upload** | Drop or browse for a `.txt` requirements document and a `.csv` data dictionary, or click **Use demo data**. Each card lists the expected format, with the required columns marked, and links a downloadable template. After upload it shows the file's name and size, what was detected, and an **Upload checks** list: encoding, required and optional columns, unique names, recognised data types, sample values. A failing check names the problem and offers **Upload again** instead of crashing the app. Choose the mapping engine here: Demo mode, OpenAI or Anthropic. |
+| **2. Map and review** | Two views. **Review queue:** one proposal per required target field, riskiest first. Selecting a row opens the **evidence panel**, which has two tabs. **Evidence:** the exact requirement passage (verified verbatim), source and target definitions, the transformation, a before-and-after sample preview, the reasoning and the assumptions. **Rule checks:** all ten results. Approve, Edit mapping and Reject sit at the bottom of the panel. **Review next issue** cycles through unresolved mappings. Keyboard: `↑` `↓` to move, `N` for the next issue, `A` to approve. **Field mapping:** an editor with one row per target field, required fields first, in a fixed order. Each row has dropdowns for the source field(s), transformation and requirement evidence, a sample preview and a live status. Unmapped or blocked rows turn red. Edits stay unsaved until **Save mapping**; each saved change is audited, and source fields that no target uses are listed. |
 | **3. Validate** | Ten deterministic checks per mapping. Each row expands to show the evidence or sample used and the remediation. Below that is an initial test plan generated from templates attached to each transformation. |
 | **4. Approve and export** | Record decisions, resolve or add open questions, and read the audit history. Download, copy or preview the Markdown brief. You can export unresolved work, but the brief is then prominently marked **NOT READY FOR BUILD**. |
 
@@ -120,7 +120,7 @@ The stepper at the top is clickable once proposals exist. Changing input files o
 | `app/api/propose/route.ts` | Calls the chosen provider with the caller's key; validates output before returning |
 | `app/api/verify-key/route.ts` | Free key check (lists models) |
 | `app/api/status/route.ts` | Reports whether server-side keys exist (booleans only) |
-| `components/workbench/*` | The four steps, evidence panel, AI settings drawer, toasts, state |
+| `components/workbench/*` | The four steps, evidence panel, field-mapping editor (`FieldMapping.tsx`), AI settings drawer, toasts, state |
 | `components/ui.tsx` | Buttons, status badges (icon plus text, never colour alone), cards, tabs |
 | `lib/models.ts` | Types, target fields, and the zod AI contract (`MappingBatch`, `MappingProposal`) |
 | `lib/inputs.ts` | `.txt` and `.csv` parsing with strict UTF-8 and clear errors |
@@ -130,7 +130,7 @@ The stepper at the top is clickable once proposals exist. Changing input files o
 | `lib/exporter.ts` | Markdown integration brief |
 | `lib/engine.ts` | Client-side generation: Demo mode, or a live request with validation and fallback |
 | `lib/ai/*` | Provider-neutral prompt and validation; OpenAI and Anthropic adapters; server helpers |
-| `public/demo/*` | Demo requirements, dictionary, dictionary v2, and the saved Demo-mode response |
+| `public/demo/*`, `public/templates/*` | Demo requirements, dictionary, dictionary v2, the saved Demo-mode response, and blank upload templates |
 | `tests/*` | Vitest suite |
 
 The model **selects** a transformation identifier. Trusted code performs the transformation. There is no `eval`,
@@ -153,10 +153,9 @@ no `new Function`, no dynamic import and no generated code.
 1. **Upload (20 s).** Click **Use demo data**. Point out the file cards (3 requirements and 3 fields detected, both
    parsed), the target-field table and the engine choice. Click **Generate mapping proposals**.
 2. **Risk-first review (60 s).** `consent_timestamp` is at the top and **Missing**. In the evidence panel, show the
-   exact R3 quote with its *Found verbatim, line 5* marker. Open **Correct mapping**, then pick `identity` with
-   `submitted_at`. The panel immediately shows **If applied: Blocked** (check 9), before anything is saved:
-   submission time is not consent time. Apply it to show it's audited, then set the transformation back to
-   `none`.
+   exact R3 quote with its *Found verbatim, line 5* marker. Click **Edit mapping** to open the field-mapping
+   editor, and pick `submitted_at` as the consent source. The row turns red and **Blocked** (check 9) before
+   anything is saved: submission time is not consent time. Click **Discard**, then **Review queue** to go back.
 3. **Human approval (40 s).** Press `N` (or click **Review next issue**) to reach `monthly_gross_income_gbp`. Show
    48000 → 4000, the source → target definitions and the assumptions. Press `A` (or click **Approve mapping**): the
    status becomes Approved and the row moves to the bottom.
@@ -170,10 +169,27 @@ no `new Function`, no dynamic import and no generated code.
 that the same checks and approvals apply to the live proposals. A wrong key shows a clean notice and falls back to
 Demo mode.
 
-**Optional: updated dictionary.** On Upload, click *Try the updated demo dictionary (v2)* and regenerate. Map
-`consent_timestamp` to `consent_given_at` using `identity`: every check passes and it can be approved. Then try
-`monthly_net_income_gbp` (Blocked by the gross/net check) or `annual_gross_income_eur` (Blocked by the currency
-check).
+**Optional: updated dictionary.** On Upload, click *Try the updated demo dictionary (v2)* and regenerate. In
+**Field mapping**, set the consent source to `consent_given_at`: the row turns **Ready**, and the note lists the
+source fields no target uses. Save it, then approve it in the review queue. Then try `monthly_net_income_gbp`
+(Blocked by the gross/net check) or `annual_gross_income_eur` (Blocked by the currency check) for income.
+
+---
+
+## Design references
+
+The upload and field-mapping screens follow patterns from shipped products, found on [Mobbin](https://mobbin.com):
+
+- **Upload:** guidelines and a template next to the drop zone ([WRITER](https://mobbin.com/screens/87aa8443-d9cf-40ad-9f00-39fe51d1e01e),
+  [Klaviyo](https://mobbin.com/screens/be632ca0-d1f7-4ba2-a458-8a3766550b9f),
+  [QuickBooks](https://mobbin.com/screens/d5816d61-0d4e-4012-846e-381285100b54)); a file chip with its size
+  ([Xero](https://mobbin.com/screens/c22e6319-aee6-4c1c-bac4-28f35798db30)); a validation checklist with re-upload
+  ([Clay](https://mobbin.com/screens/f2f126f6-d9c1-47e6-a801-39b1b67c5f11)).
+- **Field mapping:** target fields listed first, with required ones marked
+  ([QuickBooks](https://mobbin.com/screens/41f2477b-8765-44c3-a8a9-78104565628f)); a mapped/unmapped summary with
+  unmapped rows highlighted ([AutoSend](https://mobbin.com/screens/8d017614-92b0-4db5-ac52-be97356d42d1)); a sample
+  preview in each row ([Salesforce](https://mobbin.com/screens/4f21048f-b521-4b4f-92cb-0318d9176487)); and a
+  note about unused fields ([Wix](https://mobbin.com/screens/2a9450b5-ade7-4f84-b805-404416f2d3f3)).
 
 ---
 

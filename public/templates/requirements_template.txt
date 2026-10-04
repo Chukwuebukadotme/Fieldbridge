@@ -1,0 +1,3 @@
+R1: Write one requirement per line, starting with an identifier such as R1.
+
+R2: Quote the lender's wording exactly; evidence is matched character for character.
