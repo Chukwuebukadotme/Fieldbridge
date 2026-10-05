@@ -27,16 +27,36 @@ export function Workbench() {
 function Shell() {
   const { step, workspace } = useWorkbench();
   return (
-    <div className="min-h-screen">
+    <div className="flex min-h-screen flex-col">
       <Header />
-      <main className="mx-auto max-w-[1400px] px-4 pt-6 pb-16 sm:px-6">
+      <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 pt-6 pb-16 sm:px-6">
         <Stepper />
         <div key={step} className="mt-6 animate-fade-in">
           {step === 1 || !workspace ? <UploadStep /> : step === 2 ? <MapStep /> : step === 3 ? <ValidateStep /> : <ExportStep />}
         </div>
       </main>
+      <Footer />
       <SettingsDrawer />
     </div>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="border-t border-slate-200/80 bg-white/60">
+      <div className="mx-auto max-w-[1400px] px-4 py-5 text-center text-[13px] text-slate-500 sm:px-6">
+        Built with care by{" "}
+        {/* New tab: all review state lives in this tab, so navigating away would lose it. */}
+        <a
+          href="https://chukwuebukaonyemelukwe.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-slate-700 underline decoration-slate-300 underline-offset-4 transition-colors hover:text-blue-700 hover:decoration-blue-400"
+        >
+          Chukwuebuka<span className="sr-only"> (opens in a new tab)</span>
+        </a>
+      </div>
+    </footer>
   );
 }
 
